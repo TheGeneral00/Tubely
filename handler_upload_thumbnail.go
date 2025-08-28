@@ -1,10 +1,13 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
 )
@@ -57,7 +60,6 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
         }
         defer data.Close()
         contentType := header.Header.Get("Content-Type")
-        imageByte, err := io.ReadAll(data)
         video, err := cfg.db.GetVideo(videoID)
         if err != nil {
                 respondWithError(w, http.StatusInternalServerError, " Failed to get video from database.", err)
@@ -68,20 +70,22 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
                 return
         }
         // using func below write image data and media type into single dataUrl  
-        video.ThumbnailURL, err = writeDataToThumbnailUrl(contentType, imageByte)
+        video.ThumbnailURL, err = cfg.uploadImageToAssets(videoIDString, cfg.assetsRoot, contentType, data)
         err = cfg.db.UpdateVideo(video)
         if err != nil {
                 respondWithError(w, http.StatusInternalServerError, " Failed to update video data.", err)
                 return
         }
+        fmt.Println("New thumbnail URL:", *video.ThumbnailURL)
 	respondWithJSON(w, http.StatusOK, video)
 }
 
-func writeDataToThumbnailUrl (mediaType string, imageByte []byte) (*string, error) {
+func (cfg *apiConfig) uploadImageToAssets (videoId string, assetsRoot string, mediaType string, thumbnail multipart.File) (*string, error) {
         /*
-        Function to create data url 
+        Saves image in assets with specific <videoId>.<file_extension> format 
 
         input:
+                videoId         string          stringified uuid 
                 mediaType       string          contains information on the type of picture
                 imageByte       []byte          byte map of the image data 
 
@@ -90,10 +94,20 @@ func writeDataToThumbnailUrl (mediaType string, imageByte []byte) (*string, erro
                 error           error object containing information on what failed during the function call
         */
 
-        dataString := base64.StdEncoding.EncodeToString(imageByte)
-        if dataString == "" {
-                return nil, fmt.Errorf("Failed to encode image data.")
+        extension := getFileExtention(mediaType)
+        thumbnailFile := strings.Join([]string{videoId, extension}, ".")
+        thumbnailPath := filepath.Join(assetsRoot, thumbnailFile)
+        file, err := os.Create(thumbnailPath)
+        if err != nil {
+                return nil, err
         }
-        dataUrl := fmt.Sprintf("data:%s;base64,%s", mediaType, dataString)
-        return &dataUrl, nil
+        defer file.Close()
+        io.Copy(file, thumbnail)
+        thumbnailUrl := fmt.Sprintf("http://localhost:%s/assets/%s", cfg.port, thumbnailFile)
+        return &thumbnailUrl, nil
+}
+
+func getFileExtention(mediaType string) string {
+        parts := strings.Split(mediaType, "/")
+        return parts[len(parts)-1]
 }
