@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,7 +10,20 @@ import (
 )
 
 func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Request) {
-	videoIDString := r.PathValue("videoID")
+	/*
+        Function to handle thumbnail upload. Receives data via https request. Uses the video id 
+        to upload a dataUrl into ThumbnailURL comlumn of the db. dataUrl contains base64 encoded
+        string of the image byte map and content-type of the image (data:<media-type>;base64,<data>).
+        Uses automated json responses on success or failure. See json.go file for more information.
+
+        input:
+                w               http.ResponseWriter
+                r               http.Request
+
+        output:
+
+        */
+        videoIDString := r.PathValue("videoID")
 	videoID, err := uuid.Parse(videoIDString)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid ID", err)
@@ -30,8 +44,6 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
-
-	// TODO: implement the upload here
         const maxMemory int64 = 10*1024*1024
         err = r.ParseMultipartForm(maxMemory)
         if err != nil {
@@ -55,16 +67,33 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
                 respondWithError(w, http.StatusUnauthorized, "You are not the owner of the requested video.", err)
                 return
         }
-        videoThumbnails[videoID] = thumbnail{
-                data: imageByte,
-                mediaType: contentType,
-        }
-        url := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", cfg.port, videoID)
-        video.ThumbnailURL = &url
+        // using func below write image data and media type into single dataUrl  
+        video.ThumbnailURL, err = writeDataToThumbnailUrl(contentType, imageByte)
         err = cfg.db.UpdateVideo(video)
         if err != nil {
                 respondWithError(w, http.StatusInternalServerError, " Failed to update video data.", err)
                 return
         }
 	respondWithJSON(w, http.StatusOK, video)
+}
+
+func writeDataToThumbnailUrl (mediaType string, imageByte []byte) (*string, error) {
+        /*
+        Function to create data url 
+
+        input:
+                mediaType       string          contains information on the type of picture
+                imageByte       []byte          byte map of the image data 
+
+        output:
+                *string         pointer to the created data url 
+                error           error object containing information on what failed during the function call
+        */
+
+        dataString := base64.StdEncoding.EncodeToString(imageByte)
+        if dataString == "" {
+                return nil, fmt.Errorf("Failed to encode image data.")
+        }
+        dataUrl := fmt.Sprintf("data:%s;base64,%s", mediaType, dataString)
+        return &dataUrl, nil
 }
