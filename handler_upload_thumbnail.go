@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -8,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
 )
@@ -70,7 +73,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
                 return
         }
         // using func below write image data and media type into single dataUrl  
-        video.ThumbnailURL, err = cfg.uploadImageToAssets(videoIDString, cfg.assetsRoot, contentType, data)
+        video.ThumbnailURL, err = cfg.uploadImageToAssets(cfg.assetsRoot, contentType, data)
         err = cfg.db.UpdateVideo(video)
         if err != nil {
                 respondWithError(w, http.StatusInternalServerError, " Failed to update video data.", err)
@@ -80,7 +83,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	respondWithJSON(w, http.StatusOK, video)
 }
 
-func (cfg *apiConfig) uploadImageToAssets (videoId string, assetsRoot string, mediaType string, thumbnail multipart.File) (*string, error) {
+func (cfg *apiConfig) uploadImageToAssets (assetsRoot string, mediaType string, thumbnail multipart.File) (*string, error) {
         /*
         Saves image in assets with specific <videoId>.<file_extension> format 
 
@@ -95,7 +98,13 @@ func (cfg *apiConfig) uploadImageToAssets (videoId string, assetsRoot string, me
         */
 
         extension := getFileExtention(mediaType)
-        thumbnailFile := strings.Join([]string{videoId, extension}, ".")
+	randByte := make([]byte, 32)
+	_, err := rand.Read(randByte)
+	if err != nil {
+		return nil, err
+	}
+	randString := base64.RawStdEncoding.EncodeToString(randByte)
+        thumbnailFile := strings.Join([]string{randString, extension}, ".")
         thumbnailPath := filepath.Join(assetsRoot, thumbnailFile)
         file, err := os.Create(thumbnailPath)
         if err != nil {
